@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multiplayer Snake Game</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #gameCanvas {
+            border: 2px solid #333;
+            background-color: white;
+        }
+        #scoreBoard {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(255,255,255,0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        button{
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(255,255,255,0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="500" height="500"></canvas>
+    <div id="scoreBoard"></div>
+    <button onclick="changeName()">Change Name</button>
+
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreBoard = document.getElementById('scoreBoard');
+
+        if (!document.cookie.includes('name')) {
+            const name = prompt('Enter your name:');
+            document.cookie = `name=${name}`;
+            location.reload();
+        }
+
+        const changeName = () => {
+            document.cookie = 'name=; expires=Thu, 01 Jan 1970 00:00:00 UTC';
+            const name = prompt('Enter your name:');
+            document.cookie = `name=${name}`;
+            location.reload();
+        }
+ 
+        let gameState = {
+            players: {},
+            food: {},
+            gridSize: 30
+        };
+
+        const cellSize = canvas.width / gameState.gridSize;
+
+        // Draw game elements
+        function drawGame() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw grid lines (optional)
+            ctx.strokeStyle = '#f0f0f0';
+            for (let x = 0; x < canvas.width; x += cellSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += cellSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // Draw food
+            ctx.fillStyle = 'red';
+            ctx.fillRect(
+                gameState.food.x * cellSize, 
+                gameState.food.y * cellSize, 
+                cellSize, 
+                cellSize
+            );
+
+            // Draw players
+            Object.entries(gameState.players).forEach(([id, player]) => {
+                ctx.fillStyle = id === socket.id ? 'green' : player.color;
+                player.body.forEach(segment => {
+                    ctx.fillRect(
+                        segment.x * cellSize, 
+                        segment.y * cellSize, 
+                        cellSize, 
+                        cellSize
+                    );
+                });
+            });
+
+            // Update score board
+            updateScoreBoard();
+        }
+
+        function updateScoreBoard() {
+            const scores = Object.entries(gameState.players)
+                .map(([id, player]) => `${player.name.slice(0,10) || id.slice(0,10)}: ${player.score}`)
+                .join('<br>');
+            scoreBoard.innerHTML = `Scores:<br>${scores}`;
+        }
+
+        // Handle keyboard input
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp': socket.emit('changeDirection', 'up'); break;
+                case 'ArrowDown': socket.emit('changeDirection', 'down'); break;
+                case 'ArrowLeft': socket.emit('changeDirection', 'left'); break;
+                case 'ArrowRight': socket.emit('changeDirection', 'right'); break;
+            }
+        });
+
+        // Socket event handlers
+        socket.on('gameState', (state) => {
+            gameState = state;
+            drawGame();
+        });
+
+        socket.on('foodEaten', ({ food }) => {
+            gameState.food = food;
+        });
+
+        socket.on('playerJoined', ({ id, player }) => {
+            gameState.players[id] = player;
+        });
+
+        socket.on('playerLeft', (playerId) => {
+            delete gameState.players[playerId];
+        });
+
+        // swipe event
+        let touchstartX = 0;
+        let touchstartY = 0;
+        let touchendX = 0;
+        let touchendY = 0;
+
+        const gestureZone = document.getElementById('gameCanvas');
+
+        gestureZone.addEventListener('touchstart', function(event) {
+            touchstartX = event.changedTouches[0].screenX;
+            touchstartY = event.changedTouches[0].screenY;
+        }, false);
+
+        gestureZone.addEventListener('touchend', function(event) {
+            touchendX = event.changedTouches[0].screenX;
+            touchendY = event.changedTouches[0].screenY;
+            handleGesture();
+        }, false);
+
+        function handleGesture() {
+            if (touchendX < touchstartX) {
+                socket.emit('changeDirection', 'left');
+            }
+            if (touchendX > touchstartX) {
+                socket.emit('changeDirection', 'right');
+            }
+            if (touchendY < touchstartY) {
+                socket.emit('changeDirection', 'up');
+            }
+            if (touchendY > touchstartY) {
+                socket.emit('changeDirection', 'down');
+            }
+        }
+
+        socket.on('gameOver', () => {
+            alert('Game Over! You crashed.');
+        });
+    </script>
+</body>
+</html>
